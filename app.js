@@ -110,36 +110,21 @@ app.get('/metrics', async (req, res) => {
 })
 
 // ─── CONFIGURACIÓN GEMINI ──────────────────────────────────────────
-const { PredictionServiceClient } = require('@google-cloud/aiplatform').v1;
-const { helpers } = require('@google-cloud/aiplatform');
+// ─── CONFIGURACIÓN GEMINI ──────────────────────────────────
+const { GoogleGenAI } = require('@google/genai');
 
-const PROJECT_ID = process.env.GOOGLE_CLOUD_PROJECT || 'cicdtraining-498421';
-const LOCATION = 'global';
-const MODEL = 'gemini-2.0-flash';
-
-const aiClient = new PredictionServiceClient({
-  apiEndpoint: `aiplatform.googleapis.com`
+const ai = new GoogleGenAI({
+  vertexai: true,
+  project: 'cicdtraining-498421',
+  location: 'global',
 });
 
 async function callGemini(prompt) {
-  const endpoint = `projects/${PROJECT_ID}/locations/${LOCATION}/publishers/google/models/${MODEL}`;
-  
-  const request = {
-    endpoint,
-    instances: [helpers.toValue({ 
-      contents: [{ role: 'user', parts: [{ text: prompt }] }] 
-    })],
-    parameters: helpers.toValue({ maxOutputTokens: 1024, temperature: 0.3 })
-  };
-
-  const [response] = await aiClient.predict(request);
-  const content = response.predictions[0].structValue
-    .fields.candidates.listValue.values[0]
-    .structValue.fields.content.structValue
-    .fields.parts.listValue.values[0]
-    .structValue.fields.text.stringValue;
-  
-  return content;
+  const response = await ai.models.generateContent({
+    model: 'gemini-3.5-flash',
+    contents: prompt,
+  });
+  return response.text;
 }
 
 // ─── ENDPOINT 1: Análisis de resultados k6 ────────────────────────
