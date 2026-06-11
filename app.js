@@ -114,11 +114,11 @@ const { PredictionServiceClient } = require('@google-cloud/aiplatform').v1;
 const { helpers } = require('@google-cloud/aiplatform');
 
 const PROJECT_ID = process.env.GOOGLE_CLOUD_PROJECT || 'cicdtraining-498421';
-const LOCATION = 'us-central1';
-const MODEL = 'gemini-3.5-flash';
+const LOCATION = 'global';
+const MODEL = 'gemini-2.0-flash';
 
 const aiClient = new PredictionServiceClient({
-  apiEndpoint: `${LOCATION}-aiplatform.googleapis.com`
+  apiEndpoint: `aiplatform.googleapis.com`
 });
 
 async function callGemini(prompt) {
