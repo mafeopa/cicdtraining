@@ -78,7 +78,7 @@ app.get('/api/work', async (req, res) => {
 
 // Prueba de concurrencia — dispara N requests internos en paralelo
 app.get('/api/stress', async (req, res) => {
-  const connections = Math.min(parseInt(req.query.connections) || 10, 100)
+  const connections = Math.min(parseInt(req.query.connections) || 10, 3000)
   const ms = Math.min(parseInt(req.query.ms) || 100, 5000)
 
   const start = Date.now()
