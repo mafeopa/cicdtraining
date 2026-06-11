@@ -109,6 +109,133 @@ app.get('/metrics', async (req, res) => {
   res.send(await register.metrics())
 })
 
+// ─── CONFIGURACIÓN GEMINI ──────────────────────────────────────────
+const { PredictionServiceClient } = require('@google-cloud/aiplatform').v1;
+const { helpers } = require('@google-cloud/aiplatform');
+
+const PROJECT_ID = process.env.GOOGLE_CLOUD_PROJECT || 'cicdtraining-498421';
+const LOCATION = 'us-central1';
+const MODEL = 'gemini-2.5-flash-lite-001';
+
+const aiClient = new PredictionServiceClient({
+  apiEndpoint: `${LOCATION}-aiplatform.googleapis.com`
+});
+
+async function callGemini(prompt) {
+  const endpoint = `projects/${PROJECT_ID}/locations/${LOCATION}/publishers/google/models/${MODEL}`;
+  
+  const request = {
+    endpoint,
+    instances: [helpers.toValue({ 
+      contents: [{ role: 'user', parts: [{ text: prompt }] }] 
+    })],
+    parameters: helpers.toValue({ maxOutputTokens: 1024, temperature: 0.3 })
+  };
+
+  const [response] = await aiClient.predict(request);
+  const content = response.predictions[0].structValue
+    .fields.candidates.listValue.values[0]
+    .structValue.fields.content.structValue
+    .fields.parts.listValue.values[0]
+    .structValue.fields.text.stringValue;
+  
+  return content;
+}
+
+// ─── ENDPOINT 1: Análisis de resultados k6 ────────────────────────
+app.post('/api/ai/analyze', express.json(), async (req, res) => {
+  try {
+    const k6Results = req.body;
+
+    const prompt = `Eres un experto en SRE. Analiza estos resultados de una prueba de carga k6 
+y determina si se cumplen los SLOs definidos:
+- SLO Disponibilidad: errores < 0.5%
+- SLO Latencia: p95 < 500ms
+- SLO Tasa de errores: 5xx < 0.5%
+
+Resultados k6:
+${JSON.stringify(k6Results, null, 2)}
+
+Responde en español con:
+1. Estado de cada SLO (cumplido/roto)
+2. Análisis de lo que pasó
+3. Recomendaciones concretas`;
+
+    const analysis = await callGemini(prompt);
+    res.json({ analysis, timestamp: new Date().toISOString() });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── ENDPOINT 2: Asistente SRE ────────────────────────────────────
+app.post('/api/ai/sre', express.json(), async (req, res) => {
+  try {
+    const { question } = req.body;
+
+    // Recolectar métricas actuales
+    const metrics = await register.getMetricsAsJSON();
+    const requestsTotal = metrics.find(m => m.name === 'http_requests_total');
+    const duration = metrics.find(m => m.name === 'http_request_duration_ms');
+
+    const prompt = `Eres un asistente SRE experto. 
+El usuario pregunta: "${question}"
+
+Estado actual del servicio cicdtraining en Cloud Run:
+- Métricas de requests: ${JSON.stringify(requestsTotal?.values || [], null, 2)}
+- Métricas de latencia: ${JSON.stringify(duration?.values?.slice(0,5) || [], null, 2)}
+
+SLOs definidos:
+- Disponibilidad: ≥ 99.5%
+- Latencia p95: < 500ms  
+- Tasa de errores: ≤ 0.5%
+
+Responde en español de forma clara y concisa.`;
+
+    const answer = await callGemini(prompt);
+    res.json({ answer, timestamp: new Date().toISOString() });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── ENDPOINT 3: Predicción de ruptura de SLO ─────────────────────
+app.post('/api/ai/predict', express.json(), async (req, res) => {
+  try {
+    const { metrics_history } = req.body;
+
+    const prompt = `Eres un experto en SRE y análisis predictivo.
+Analiza esta serie de métricas de los últimos minutos y predice si algún SLO está en riesgo:
+
+Historial de métricas:
+${JSON.stringify(metrics_history, null, 2)}
+
+SLOs a vigilar:
+- Disponibilidad: ≥ 99.5%
+- Latencia p95: < 500ms
+- Tasa de errores: ≤ 0.5%
+
+Responde en español con:
+1. Nivel de riesgo: BAJO / MEDIO / ALTO
+2. Qué SLO está en riesgo y por qué
+3. En cuánto tiempo podría romperse
+4. Acción inmediata recomendada`;
+
+    const prediction = await callGemini(prompt);
+    res.json({ prediction, risk_evaluated_at: new Date().toISOString() });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
+
 // ─── ARRANQUE ──────────────────────────────────────────────────────
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Servidor corriendo en puerto ${PORT}`)
